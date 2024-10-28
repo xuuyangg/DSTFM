@@ -147,28 +147,17 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 def load_dataset():   
-    tra_x = args.data_dir+args.appliance_name+'_mains_'+'tra_small' #save path for mains
-    val_x = args.data_dir+args.appliance_name+'_mains_'+'val'
 
-    tra_y = args.data_dir+args.appliance_name+'_tra_small'+'_'+'pointnet'#save path for target
-    val_y = args.data_dir+args.appliance_name+'_val'+'_'+'pointnet'
-
-    tra_s = args.data_dir+args.appliance_name+'_tra_small'+'_'+'pointnet_s'#save path for target
-    val_s = args.data_dir+args.appliance_name+'_val'+'_'+'pointnet_s'
-
-    test_x = args.data_dir+args.appliance_name+'_test_x'
-    test_y = args.data_dir+args.appliance_name+'_test_gt'
-    test_s = args.data_dir+args.appliance_name+'_test_gt_s'
+    import pandas as pd
+    path = '/home/zjut/xy/MSDC-NILM/REDD/dishwasher'    
     
-    tra_set_x = np.load(tra_x+'.npy').astype(np.float32)
-    tra_set_y = np.load(tra_y+'.npy').astype(np.float32) 
-    tra_set_s = np.load(tra_s+'.npy').astype(np.float32)
-    val_set_x = np.load(val_x+'.npy').astype(np.float32)
-    val_set_y = np.load(val_y+'.npy').astype(np.float32)
-    val_set_s = np.load(val_s+'.npy').astype(np.float32)
-    test_set_x = np.load(test_x+'.npy').astype(np.float32)
-    test_set_y = np.load(test_y+'.npy').astype(np.float32)
-    test_set_s = np.load(test_s+'.npy').astype(np.float32)
+    train = pd.read_csv(os.path.join(path, 'dishwasher_training_.csv'), header=None).to_numpy()
+    val = pd.read_csv(os.path.join(path, 'dishwasher_validation_.csv'), header=None).to_numpy()
+    test = pd.read_csv(os.path.join(path, 'dishwasher_test_.csv'), header = None).to_numpy()
+
+    tra_set_x, tra_set_y, tra_set_s = train[:, 0], train[:, 1], train[:, 2]
+    val_set_x, val_set_y, val_set_s = val[:, 0],  val[:, 1], val[:, 2]
+    test_set_x, test_set_y, test_set_s = test[:, 0], test[:, 1], test[:, 2]
     
     print('training set:', tra_set_x.shape, tra_set_y.shape, tra_set_s.shape)
     print('validation set:', val_set_x.shape, val_set_y.shape, val_set_s.shape)
@@ -219,7 +208,6 @@ std = params_appliance[args.appliance_name]['std']
 
 # train & val
 best_state_dict_path = 'state_dict/{}'.format(args.appliance_name)
-
 best_val_loss = float('inf')
 best_val_epoch = -1
 for epoch in range(args.n_epoch):
@@ -271,7 +259,7 @@ for epoch in range(args.n_epoch):
 
     val_loss = val_loss / n_batch_val
     
-    print('>>> Epoch {}: train mse loss {:.6f}, val mse loss {:.6f}'.format(epoch, train_loss, val_loss))
+    print('>>> Epoch {}: train mse loss {:.6f}, val mse loss {:.6f}'.format(epoch, train_loss, val_loss), flush=True)
     
     if val_loss < best_val_loss:
         best_val_loss = val_loss
@@ -279,8 +267,8 @@ for epoch in range(args.n_epoch):
         
         if not os.path.exists('state_dict/'):
             os.mkdir('state_dict/')
-        best_state_path = best_state_dict_path
-        torch.save(m.state_dict(), best_state_path+'.pkl')
+        # best_state_path = best_state_dict_path
+        torch.save(m.state_dict(), best_state_dict_path+'.pkl')
         
     elif best_val_epoch + args.patience < epoch:
         print('>>> Early stopping') 
@@ -297,7 +285,7 @@ pred_p = np.zeros((test_len, state_num))
 pred_s = np.zeros((test_len, state_num))
 gt = test_set_y[offset-out_len//2: -offset+out_len//2]
 gt_s = test_set_s[offset-out_len//2: -offset+out_len//2]
-m.load_state_dict(torch.load(best_state_path+'.pkl'))
+m.load_state_dict(torch.load(best_state_dict_path+'.pkl'))
 m.eval()
 datanum = 0
 ave = np.ones((test_len)) * out_len
@@ -356,7 +344,7 @@ savepred_s = pred_sh.flatten()
 
 np.savetxt(save_path+args.appliance_name+'_pred.txt',savepred,fmt='%f',newline='\n')
 np.savetxt(save_path+args.appliance_name+'_gt.txt',savegt,fmt='%f',newline='\n')
-np.savetxt(save_path+args.appliance_name+'_mains.txt',savemains,fmt='%f',newline='\n')
+# np.savetxt(save_path+args.appliance_name+'_mains.txt',savemains,fmt='%f',newline='\n')
 np.savetxt(save_path+args.appliance_name+'_pred_p.txt',pred_p,fmt='%f',newline='\n')
 np.savetxt(save_path+args.appliance_name+'_gt_s.txt',savegt_s,fmt='%d',newline='\n')
 np.savetxt(save_path+args.appliance_name+'_pred_s.txt',savepred_s,fmt='%d',newline='\n')

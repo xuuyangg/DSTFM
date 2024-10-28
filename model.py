@@ -31,6 +31,76 @@ class S2S(nn.Module):
 
         return x
 
+class FusionS2P(nn.Module):
+    def __init__(self, window_len):
+        super(FusionS2P, self).__init__()
+        self.conv1_p = nn.Conv1d(1, 30, 13, padding=6)  # 10
+        self.conv2_p = nn.Conv1d(30, 30, 11, padding=5)  # 8
+        self.conv3_p = nn.Conv1d(30, 40, 9, padding=4)  # 6
+        self.conv4_p = nn.Conv1d(40, 50, 7, padding=3)
+        self.conv5_p = nn.Conv1d(50, 50, 5, padding=2)
+        # self.conv6_p = nn.Conv1d(50, 50, 5, padding=2)
+
+        self.dropout = nn.Dropout(0.5)
+        self.fc1_p = nn.Linear(100 * window_len, 1024)
+
+        self.fc2_p = nn.Linear(1024, 1)
+
+        self.conv1_p_r = nn.Conv1d(1, 30, 13, padding=6)  # 10
+        self.conv2_p_r = nn.Conv1d(30, 30, 11, padding=5)  # 8
+
+        self.LSTM = nn.LSTM(30, 25, bidirectional=True)
+
+
+    def forward(self, x):
+        x = x.unsqueeze(1)
+        y = x
+        x = F.relu(self.conv1_p(x))
+        x = F.relu(self.conv2_p(x))
+        x = F.relu(self.conv3_p(x))
+        x = F.relu(self.conv4_p(x))
+        x = F.relu(self.conv5_p(x))
+
+        y = F.relu(self.conv1_p_r(y))
+        y = F.relu(self.conv2_p_r(y))
+        y = torch.permute(y, (2, 0, 1))
+        y, _ = self.LSTM(y)
+        y = torch.permute(y, (1, 2, 0))
+        x = torch.cat((x, y), axis = 1)
+
+        x = x.flatten(-2, -1)
+        x = F.relu(self.fc1_p(self.dropout(x)))
+        x = self.fc2_p(x)
+
+        return x    
+
+
+class S2P(nn.Module):
+    def __init__(self, window_len):
+        super(S2P, self).__init__()
+        self.conv1_p = nn.Conv1d(1, 30, 13, padding=6)  # 10
+        self.conv2_p = nn.Conv1d(30, 30, 11, padding=5)  # 8
+        self.conv3_p = nn.Conv1d(30, 40, 9, padding=4)  # 6
+        self.conv4_p = nn.Conv1d(40, 50, 7, padding=3)
+        self.conv5_p = nn.Conv1d(50, 50, 5, padding=2)
+        # self.conv6_p = nn.Conv1d(50, 50, 5, padding=2)
+        self.fc1_p = nn.Linear(50 * window_len, 1024)
+        self.fc2_p = nn.Linear(1024, 1)
+
+
+    def forward(self, x):
+        x = x.unsqueeze(1)
+        x = F.relu(self.conv1_p(x))
+        x = F.relu(self.conv2_p(x))
+        x = F.relu(self.conv3_p(x))
+        x = F.relu(self.conv4_p(x))
+        x = F.relu(self.conv5_p(x))
+        # x = F.relu(self.conv6_p(x))
+        x = x.flatten(-2, -1)
+        x = F.relu(self.fc1_p(x))
+        x = self.fc2_p(x)
+
+        return x
 
 class S2P_on(nn.Module):
     def __init__(self, window_len):
