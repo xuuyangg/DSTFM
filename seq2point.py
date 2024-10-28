@@ -138,7 +138,7 @@ def get_arguments():
 
 args = get_arguments()
 # save_path='/result/redd_fa_132_'+str(args.seed)+'_'
-save_path = '/data/'
+save_path = './result/'
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 random.seed(args.seed)
@@ -148,28 +148,28 @@ torch.cuda.manual_seed(args.seed)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
-
 def load_dataset():   
 
     import pandas as pd
-    path = '/home/zjut/xy/MSDC-NILM/REDD/dishwasher'    
+    path = f'/home/zjut/xy/MSDC-NILM/REDD/{args.appliance_name}'    
     
-    train = pd.read_csv(os.path.join(path, 'dishwasher_training_.csv'), header=None).to_numpy()
-    val = pd.read_csv(os.path.join(path, 'dishwasher_validation_.csv'), header=None).to_numpy()
-    test = pd.read_csv(os.path.join(path, 'dishwasher_test_.csv'), header = None).to_numpy()
+    train = pd.read_csv(os.path.join(path, f'{args.appliance_name}_training_.csv'), header=None).to_numpy()
+    val = pd.read_csv(os.path.join(path, f'{args.appliance_name}_validation_.csv'), header=None).to_numpy()
+    test = pd.read_csv(os.path.join(path, f'{args.appliance_name}_test_.csv'), header = None).to_numpy()
 
-    tra_set_x, tra_set_y, tra_set_s = train[:, 0], train[:, 1], train[:, 2]
-    val_set_x, val_set_y, val_set_s = val[:, 0],  val[:, 1], val[:, 2]
-    test_set_x, test_set_y, test_set_s = test[:, 0], test[:, 1], test[:, 2]
+    tra_set_x, tra_set_y = train[:, 0], train[:, 1]
+    val_set_x, val_set_y = val[:, 0],  val[:, 1]
+    test_set_x, test_set_y = test[:, 0], test[:, 1]
     
-    print('training set:', tra_set_x.shape, tra_set_y.shape, tra_set_s.shape)
-    print('validation set:', val_set_x.shape, val_set_y.shape, val_set_s.shape)
-    print('testing set:', test_set_x.shape, test_set_y.shape, test_set_s.shape)
+    print('training set:', tra_set_x.shape, tra_set_y.shape)
+    print('validation set:', val_set_x.shape, val_set_y.shape)
+    print('testing set:', test_set_x.shape, test_set_y.shape)
     
-    return tra_set_x, tra_set_y, tra_set_s, val_set_x,  val_set_y, val_set_s, test_set_x, test_set_y, test_set_s
+    return tra_set_x, tra_set_y, val_set_x,  val_set_y,  test_set_x, test_set_y
+
 
 # load the data set
-tra_set_x, tra_set_y, tra_set_s, val_set_x, val_set_y, val_set_s, test_set_x, test_set_y, test_set_s = load_dataset()
+tra_set_x, tra_set_y, val_set_x, val_set_y, test_set_x, test_set_y = load_dataset()
 
 # hyper parameters according to appliance
 window_len = 599
@@ -210,53 +210,52 @@ best_state_dict_path = 'state_dict/{}'.format(args.appliance_name)
 best_val_loss = float('inf')
 best_val_epoch = -1
 
-# for epoch in range(args.n_epoch):
-#     train_loss, n_batch_train = 0, 0
-#     for idx, batch in enumerate(tra_provider.feed(**tra_kwag)):
-#         print(idx, flush=True)
-#         m.train()
-#         optimizer.zero_grad()
-#         x_train, y_train = batch
-#         x_train = torch.tensor(x_train, dtype=torch.float, device=device)
-#         y_train = torch.tensor(y_train, dtype=torch.float, device=device)
-#         p_train = m(x_train)
+for epoch in range(args.n_epoch):
+    train_loss, n_batch_train = 0, 0
+    for idx, batch in enumerate(tra_provider.feed(**tra_kwag)):
+        m.train()
+        optimizer.zero_grad()
+        x_train, y_train = batch
+        x_train = torch.tensor(x_train, dtype=torch.float, device=device)
+        y_train = torch.tensor(y_train, dtype=torch.float, device=device)
+        p_train = m(x_train)
        
-#         loss = F.mse_loss(p_train, y_train) 
-#         loss.backward()
-#         optimizer.step()
-#         train_loss += loss.item()
-#         n_batch_train += 1
-#     train_loss = train_loss / n_batch_train
+        loss = F.mse_loss(p_train, y_train) 
+        loss.backward()
+        optimizer.step()
+        train_loss += loss.item()
+        n_batch_train += 1
+    train_loss = train_loss / n_batch_train
 
-#     val_loss, n_batch_val = 0, 0
-#     with torch.no_grad():
-#         for batch in val_provider.feed(**val_kwag):
-#             m.eval()
-#             x_val, y_val = batch
-#             x_val = torch.tensor(x_val, dtype=torch.float, device=device)
-#             y_val = torch.tensor(y_val, dtype=torch.float, device=device)
-#             p_val = m(x_val)
-#             val_loss += F.mse_loss(p_val, y_val).item()
-#             n_batch_val += 1
+    val_loss, n_batch_val = 0, 0
+    with torch.no_grad():
+        for batch in val_provider.feed(**val_kwag):
+            m.eval()
+            x_val, y_val = batch
+            x_val = torch.tensor(x_val, dtype=torch.float, device=device)
+            y_val = torch.tensor(y_val, dtype=torch.float, device=device)
+            p_val = m(x_val)
+            val_loss += F.mse_loss(p_val, y_val).item()
+            n_batch_val += 1
 
-#     val_loss = val_loss / n_batch_val
+    val_loss = val_loss / n_batch_val
 
-#     print('>>> Epoch {}: train mse loss {:.6f}, val mse loss {:.6f}'.format(epoch, train_loss, val_loss), flush=True)
+    print('>>> Epoch {}: train mse loss {:.6f}, val mse loss {:.6f}'.format(epoch, train_loss, val_loss), flush=True)
 
-#     if val_loss < best_val_loss:
-#         best_val_loss = val_loss
-#         best_val_epoch = epoch
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        best_val_epoch = epoch
 
-#         if not os.path.exists('state_dict/'):
-#             os.mkdir('state_dict/')
-#         torch.save(m.state_dict(), best_state_dict_path + '.pkl')
+        if not os.path.exists('state_dict/'):
+            os.mkdir('state_dict/')
+        torch.save(m.state_dict(), best_state_dict_path + '.pkl')
 
-#     elif best_val_epoch + args.patience < epoch:
-#         print('>>> Early stopping')
-#         break
+    elif best_val_epoch + args.patience < epoch:
+        print('>>> Early stopping')
+        break
 
-#     print('>>> Best model is at epoch {}'.format(best_val_epoch))
-#     lr_scheduler.step(best_val_loss)
+    print('>>> Best model is at epoch {}'.format(best_val_epoch))
+    lr_scheduler.step(best_val_loss)
 
 # test
 gt = test_set_y[offset : -offset]

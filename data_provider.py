@@ -1,6 +1,24 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
+from torch.utils.data import Dataset
+
+class S2PDataset(Dataset):
+    def __init__(self, inputs, targets, offset, length):
+        self.inputs = inputs
+        self.targets = targets
+        self.offset = offset
+        self.length = length
+        self.total_size = inputs.shape[0] - length + 1
+
+    def __len__(self):
+        return self.total_size
+
+    def __getitem__(self, idx):
+        x = self.inputs[idx:idx + self.length]
+        y = self.targets[idx + self.offset]
+        return x, y
+
 
 class S2P_Slider(object):
     def __init__(self, batch_size, shuffle, offset, length):
