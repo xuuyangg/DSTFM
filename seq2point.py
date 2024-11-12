@@ -151,7 +151,7 @@ torch.backends.cudnn.benchmark = False
 def load_dataset():   
 
     import pandas as pd
-    path = f'/home/zjut/xy/MSDC-NILM/REDD/{args.appliance_name}'    
+    path = f'./REDD/{args.appliance_name}'    
     
     train = pd.read_csv(os.path.join(path, f'{args.appliance_name}_training_.csv'), header=None).to_numpy()
     val = pd.read_csv(os.path.join(path, f'{args.appliance_name}_validation_.csv'), header=None).to_numpy()
@@ -197,7 +197,7 @@ val_provider = data_provider.S2P_Slider(batch_size=5000,
 test_provider = data_provider.S2P_Slider(batch_size=5000,
                                                shuffle=False, offset=offset, length=window_len)
 
-m = model.FusionS2P(window_len).to(device)
+m = model.ParallelS2P(599).to(device)
 _params = filter(lambda p: p.requires_grad, m.parameters())
 optimizer = torch.optim.Adam(_params, lr=1e-4, weight_decay=1e-5)
 lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
@@ -213,6 +213,7 @@ best_val_epoch = -1
 for epoch in range(args.n_epoch):
     train_loss, n_batch_train = 0, 0
     for idx, batch in enumerate(tra_provider.feed(**tra_kwag)):
+        # print(idx, flush=True)
         m.train()
         optimizer.zero_grad()
         x_train, y_train = batch
