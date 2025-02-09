@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
-
+from sklearn.metrics import confusion_matrix
 def get_TP(target, prediction, threshold):
     '''
     compute the  number of true positive
@@ -275,5 +275,52 @@ def get_macroF1(target, prediction, state_num):
 
 
 
+appliance_thresholds = {
+    'kettle': 2000,
+    'fridge': 50,
+    'washingmachine': 50,
+    'washing_machine': 50,
+    'microwave': 300,
+    'dishwasher': 20,
+}
+
+def acc_precision_recall_f1_score(status,status_pred):
+    assert status.shape == status_pred.shape
+    
+    if type(status)!=np.ndarray:
+        status = status.detach().cpu().numpy().squeeze()   
+    if type(status_pred)!=np.ndarray: 
+        status_pred = status_pred.detach().cpu().numpy().squeeze()
+    
+
+    status      = status.reshape(status.shape[0], -1)
+    status_pred = status_pred.reshape(status_pred.shape[0],-1)
+    accs, precisions, recalls, f1_scores = [], [], [], []
 
 
+    for i in range(status.shape[0]):
+        tn, fp, fn, tp = confusion_matrix(status[i, :], status_pred[i, :], labels=[0, 1]).ravel()
+        acc            = (tn + tp) / (tn + fp + fn + tp)
+        precision      = tp / np.max((tp + fp, 1e-9))
+        recall         = tp / np.max((tp + fn, 1e-9))
+        f1_score       = 2 * (precision * recall) / np.max((precision + recall, 1e-9))
+
+        accs.append(acc)
+        precisions.append(precision)
+        recalls.append(recall)
+        f1_scores.append(f1_score)
+
+    return np.array(accs), np.array(precisions), np.array(recalls), np.array(f1_scores)
+
+def get_F1(target, prediction, appliance):
+    # Get the threshold for the appliance
+    threshold = appliance_thresholds.get(appliance)
+    if threshold is None:
+        raise ValueError(f"Appliance '{appliance}' not found in thresholds.")
+    
+    # Convert target and prediction to binary classifications
+    target_ = (target > threshold).astype(int)
+    pred_ = (prediction > threshold).astype(int)
+
+    _, _, _, f1 = acc_precision_recall_f1_score(target_, pred_)
+    return f1

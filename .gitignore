@@ -1,0 +1,9 @@
+REDD/
+*.zip
+UK_DALE
+data
+__pycache__
+*.log
+result/
+seq2point-nilm
+state_dict

@@ -156,7 +156,6 @@ def load_dataset():
     train = pd.read_csv(os.path.join(path, f'{args.appliance_name}_training_.csv'), header=None).to_numpy()
     val = pd.read_csv(os.path.join(path, f'{args.appliance_name}_validation_.csv'), header=None).to_numpy()
     test = pd.read_csv(os.path.join(path, f'{args.appliance_name}_test_.csv'), header = None).to_numpy()
-
     tra_set_x, tra_set_y = train[:, 0], train[:, 1]
     val_set_x, val_set_y = val[:, 0],  val[:, 1]
     test_set_x, test_set_y = test[:, 0], test[:, 1]
@@ -189,7 +188,7 @@ test_kwag = {
 }
 mean = params_appliance[args.appliance_name]['mean']
 std = params_appliance[args.appliance_name]['std']
-threshold = (params_appliance[args.appliance_name]['redd_on_power_threshold'] - mean) / std
+# threshold = (params_appliance[args.appliance_name]['redd_on_power_threshold'] - mean) / std
 tra_provider = data_provider.S2P_Slider(batch_size=args.batch_size,
                                               shuffle=True, offset=offset, length=window_len)  # , threshold=threshold
 val_provider = data_provider.S2P_Slider(batch_size=5000,

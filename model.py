@@ -6,67 +6,129 @@ import torch.nn.functional as F
 from crf import CRF
 from er import EntropyRegularization
 from einops import rearrange
-# import lightning as L
-# from timm.models.layers import trunc_normal_
+import lightning as L
+from timm.models.layers import trunc_normal_
 
-# class Adaptive_Spectral_Block(nn.Module):
-#     def __init__(self, dim):
-#         super().__init__()
-#         self.complex_weight_high = nn.Parameter(torch.randn(dim, 2, dtype=torch.float32) * 0.02)
-#         self.complex_weight = nn.Parameter(torch.randn(dim, 2, dtype=torch.float32) * 0.02)
+class ICB(L.LightningModule):
+    def __init__(self, in_features, hidden_features, drop=0.):
+        super().__init__()
+        self.conv1 = nn.Conv1d(in_features, hidden_features, 1)
+        self.conv2 = nn.Conv1d(in_features, hidden_features, 3, 1, 1)
+        self.conv3 = nn.Conv1d(hidden_features, in_features, 1)
+        self.drop = nn.Dropout(drop)
+        self.act = nn.GELU()
 
-#         trunc_normal_(self.complex_weight_high, std=.02)
-#         trunc_normal_(self.complex_weight, std=.02)
-#         self.threshold_param = nn.Parameter(torch.rand(1)) # * 0.5)
+    def forward(self, x):
+        x = x.transpose(1, 2)
+        x1 = self.conv1(x)
+        x1_1 = self.act(x1)
+        x1_2 = self.drop(x1_1)
 
-#     def create_adaptive_high_freq_mask(self, x_fft):
-#         B, _, _ = x_fft.shape
+        x2 = self.conv2(x)
+        x2_1 = self.act(x2)
+        x2_2 = self.drop(x2_1)
 
-#         # Calculate energy in the frequency domain
-#         energy = torch.abs(x_fft).pow(2).sum(dim=-1)
+        out1 = x1 * x2_2
+        out2 = x2 * x1_2
 
-#         # Flatten energy across H and W dimensions and then compute median
-#         flat_energy = energy.view(B, -1)  # Flattening H and W into a single dimension
-#         median_energy = flat_energy.median(dim=1, keepdim=True)[0]  # Compute median
-#         median_energy = median_energy.view(B, 1)  # Reshape to match the original dimensions
+        x = self.conv3(out1 + out2)
+        x = x.transpose(1, 2)
+        return x
 
-#         # Normalize energy
-#         normalized_energy = energy / (median_energy + 1e-6)
 
-#         adaptive_mask = ((normalized_energy > self.threshold_param).float() - self.threshold_param).detach() + self.threshold_param
-#         adaptive_mask = adaptive_mask.unsqueeze(-1)
+class PatchEmbed(L.LightningModule):
+    def __init__(self, seq_len, patch_size=8, in_chans=3, embed_dim=384):
+        super().__init__()
+        stride = patch_size // 2
+        num_patches = int((seq_len - patch_size) / stride + 1)
+        self.num_patches = num_patches
+        self.proj = nn.Conv1d(in_chans, embed_dim, kernel_size=patch_size, stride=stride)
 
-#         return adaptive_mask
+    def forward(self, x):
+        x_out = self.proj(x).flatten(2).transpose(1, 2)
+        return x_out
 
-#     def forward(self, x_in, adaptive_filter = False):
-#         B, N, C = x_in.shape
 
-#         dtype = x_in.dtype
-#         x = x_in.to(torch.float32)
+class Adaptive_Spectral_Block(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.complex_weight_high = nn.Parameter(torch.randn(dim, 2, dtype=torch.float32) * 0.02)
+        self.complex_weight = nn.Parameter(torch.randn(dim, 2, dtype=torch.float32) * 0.02)
 
-#         # Apply FFT along the time dimension
-#         x_fft = torch.fft.rfft(x, dim=1, norm='ortho')
-#         weight = torch.view_as_complex(self.complex_weight)
-#         x_weighted = x_fft * weight
+        trunc_normal_(self.complex_weight_high, std=.02)
+        trunc_normal_(self.complex_weight, std=.02)
+        self.threshold_param = nn.Parameter(torch.rand(1)) # * 0.5)
 
-#         if adaptive_filter:
-#             # Adaptive High Frequency Mask (no need for dimensional adjustments)
-#             freq_mask = self.create_adaptive_high_freq_mask(x_fft)
-#             x_masked = x_fft * freq_mask.to(x.device)
+    def create_adaptive_high_freq_mask(self, x_fft):
+        B, _, _ = x_fft.shape
 
-#             weight_high = torch.view_as_complex(self.complex_weight_high)
-#             x_weighted2 = x_masked * weight_high
+        # Calculate energy in the frequency domain
+        energy = torch.abs(x_fft).pow(2).sum(dim=-1)
 
-#             x_weighted += x_weighted2
+        # Flatten energy across H and W dimensions and then compute median
+        flat_energy = energy.view(B, -1)  # Flattening H and W into a single dimension
+        median_energy = flat_energy.median(dim=1, keepdim=True)[0]  # Compute median
+        median_energy = median_energy.view(B, 1)  # Reshape to match the original dimensions
 
-#         # Apply Inverse FFT
-#         x = torch.fft.irfft(x_weighted, n=N, dim=1, norm='ortho')
+        # Normalize energy
+        epsilon = 1e-6  # Small constant to avoid division by zero
+        normalized_energy = energy / (median_energy + epsilon)
 
-#         x = x.to(dtype)
-#         x = x.view(B, N, C)  # Reshape back to original shape
+        adaptive_mask = ((normalized_energy > self.threshold_param).float() - self.threshold_param).detach() + self.threshold_param
+        adaptive_mask = adaptive_mask.unsqueeze(-1)
 
-#         return x
+        return adaptive_mask
 
+    def forward(self, x_in):
+        B, N, C = x_in.shape
+
+        dtype = x_in.dtype
+        x = x_in.to(torch.float32)
+
+        # Apply FFT along the time dimension
+        x_fft = torch.fft.rfft(x, dim=1, norm='ortho')
+        weight = torch.view_as_complex(self.complex_weight)
+        x_weighted = x_fft * weight
+        # if adaptive_filter:
+        #     # Adaptive High Frequency Mask (no need for dimensional adjustments)
+        #     freq_mask = self.create_adaptive_high_freq_mask(x_fft)
+        #     x_masked = x_fft * freq_mask.to(x.device)
+
+        #     weight_high = torch.view_as_complex(self.complex_weight_high)
+        #     x_weighted2 = x_masked * weight_high
+
+        #     x_weighted += x_weighted2
+        # Apply Inverse FFT
+        x = torch.fft.irfft(x_weighted, n=N, dim=1, norm='ortho')
+
+        x = x.to(dtype)
+        x = x.view(B, N, C)  # Reshape back to original shape
+
+        return x
+
+
+class TSLANet_layer(L.LightningModule):
+    def __init__(self, dim, mlp_ratio=3., drop=0., drop_path=0., norm_layer=nn.LayerNorm):
+        super().__init__()
+        self.norm1 = norm_layer(dim)
+        self.asb = Adaptive_Spectral_Block(dim)
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.norm2 = norm_layer(dim)
+        mlp_hidden_dim = int(dim * mlp_ratio)
+        self.icb = ICB(in_features=dim, hidden_features=mlp_hidden_dim, drop=drop)
+
+    def forward(self, x, ICB = True, ASB = True):
+        # Check if both ASB and ICB are true
+        if ICB and ASB:
+            x = x + self.drop_path(self.icb(self.norm2(self.asb(self.norm1(x)))))
+        # If only ICB is true
+        elif ICB:
+            x = x + self.drop_path(self.icb(self.norm2(x)))
+        # If only ASB is true
+        elif ASB:
+            x = x + self.drop_path(self.asb(self.norm1(x)))
+        # If neither is true, just pass x through
+        return x
 
 
 class SimplifiedLinearAttention(nn.Module):
@@ -162,122 +224,64 @@ class SimplifiedLinearAttention(nn.Module):
         return f'dim={self.dim}, window_size={self.window_size}, num_heads={self.num_heads}'
 
 
-
-
-class SpAttnS2P(nn.Module):
-    def __init__(self, window_len):
-        super(SpAttnS2P, self).__init__()
-        self.conv1_p = nn.Conv1d(1, 30, 3, stride=1, padding = 1)
-        self.conv2_p = nn.Conv1d(30, 60, 3, stride=2, padding= 1)
-        self.conv3_p = nn.Conv1d(60, 120, 3, stride=3, padding= 1)
-        self.asb = Adaptive_Spectral_Block(120)
-        self.sum_attn = BahdanauAttention(120)
-        self.fc1_p = nn.Linear(120      , 1)
-        # self.fc2_p = nn.Linear(1024, 1)
+class DepthwiseSeparableConv(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, padding=0):
+        super(DepthwiseSeparableConv, self).__init__()
+        self.depthwise = nn.Conv1d(
+            in_channels, in_channels, kernel_size=kernel_size, padding=padding, 
+            groups=in_channels, bias=False
+        )
+        self.pointwise = nn.Conv1d(in_channels, out_channels, kernel_size=1, bias=False)
+        self.bn = nn.BatchNorm1d(out_channels)
+        self.relu = nn.ReLU(inplace=False)  # Changed to out-of-place
 
     def forward(self, x):
-        x = x.unsqueeze(1)
-        x = F.relu(self.conv1_p(x))
-        x = F.relu(self.conv2_p(x)) # output batch, 128, 300
-        x = F.relu(self.conv3_p(x)) # output batch, 128, 300
-        x = x.transpose(1, 2)
-        x = self.asb(x)
-        x = torch.permute(x, (0, 1 ,2)) 
-
-        x,_ = self.sum_attn(x)
-        x = F.relu(x)
-        # x = x.flatten(-2, -1)
-        x = self.fc1_p(x)
-        return x
-
+        out = self.depthwise(x)
+        out = self.pointwise(out)
+        out = self.bn(out)
+        out = self.relu(out)
+        return out
 
 class SEBlock(nn.Module):
-    def __init__(self, channel, reduction=16):
-        super(SEBlock, self).__init__()
-        # Squeeze operation: Global Average Pooling
-        self.global_avg_pool = nn.AdaptiveAvgPool1d(1)
-        # Excitation operation: Two fully connected layers
-        self.fc1 = nn.Conv1d(channel, channel // reduction, kernel_size=1)
-        self.relu = nn.ReLU(inplace=True)
-        self.fc2 = nn.Conv1d(channel // reduction, channel, kernel_size=1)
-        self.sigmoid = nn.Sigmoid()
-        
-    def forward(self, x):
-        # Squeeze: Global Average Pooling
-        y = self.global_avg_pool(x)
-        # Excitation: Bottleneck with two FC layers
-        y = self.fc1(y)
-        y = self.relu(y)
-        y = self.fc2(y)
-        y = self.sigmoid(y)
-        return x * y
-
-
-class SEBlock(nn.Module):
-    """
-    Squeeze-and-Excitation (SE) Block for channel-wise attention.
-    """
     def __init__(self, channels, reduction=16):
         super(SEBlock, self).__init__()
-        self.global_avg_pool = nn.AdaptiveAvgPool1d(1)
+        self.avg_pool = nn.AdaptiveAvgPool1d(1)
         self.fc = nn.Sequential(
             nn.Linear(channels, channels // reduction, bias=False),
-            nn.ReLU(inplace=True),
+            nn.ReLU(inplace=False),  # Changed to out-of-place
             nn.Linear(channels // reduction, channels, bias=False),
             nn.Sigmoid()
         )
 
     def forward(self, x):
         b, c, _ = x.size()
-        y = self.global_avg_pool(x).view(b, c)
+        y = self.avg_pool(x).view(b, c)
         y = self.fc(y).view(b, c, 1)
         return x * y.expand_as(x)
 
-class DepthwiseSeparableConv(nn.Module):
-    """
-    Depthwise Separable Convolution Layer.
-    """
-    def __init__(self, in_channels, out_channels, kernel_size, padding):
-        super(DepthwiseSeparableConv, self).__init__()
-        self.depthwise = nn.Conv1d(in_channels, in_channels, kernel_size=kernel_size,
-                                   padding=padding, groups=in_channels, bias=False)
-        self.pointwise = nn.Conv1d(in_channels, out_channels, kernel_size=1, bias=False)
-        self.bn = nn.BatchNorm1d(out_channels)
-        self.act = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        x = self.depthwise(x)
-        x = self.pointwise(x)
-        x = self.bn(x)
-        x = self.act(x)
-        return x
-
-class ICB(nn.Module):
+class My_ICB(nn.Module):
     """
     Advanced Inception Convolutional Block with multi-scale convolutions,
     depthwise separable convolutions, SE blocks, and attention mechanisms.
     """
     def __init__(self, in_features, hidden_features, drop=0.0, reduction=16):
-        super(ICB, self).__init__()
+        super(My_ICB, self).__init__()
         
         # Branch 1: 1x1 convolution
         self.branch1 = nn.Sequential(
             nn.Conv1d(in_features, hidden_features, kernel_size=1, bias=False),
             nn.BatchNorm1d(hidden_features),
             nn.ReLU(inplace=True),
-            nn.Dropout(drop)
         )
         
         # Branch 2: 3x3 depthwise separable convolution
         self.branch2 = nn.Sequential(
             DepthwiseSeparableConv(in_features, hidden_features, kernel_size=3, padding=1),
-            nn.Dropout(drop)
         )
         
         # Branch 3: 5x5 depthwise separable convolution
         self.branch3 = nn.Sequential(
             DepthwiseSeparableConv(in_features, hidden_features, kernel_size=5, padding=2),
-            nn.Dropout(drop)
         )
         
         # Branch 4: Max Pooling followed by 1x1 convolution
@@ -286,7 +290,6 @@ class ICB(nn.Module):
             nn.Conv1d(in_features, hidden_features, kernel_size=1, bias=False),
             nn.BatchNorm1d(hidden_features),
             nn.ReLU(inplace=True),
-            nn.Dropout(drop)
         )
         
         # Channel Attention Module
@@ -311,7 +314,6 @@ class ICB(nn.Module):
     
     def forward(self, x):
         identity = x  # Residual connection
-
         # Apply branches
         x1 = self.branch1(x)
         x2 = self.branch2(x)
@@ -320,131 +322,129 @@ class ICB(nn.Module):
 
         # Concatenate along the channel dimension
         out = torch.cat([x1, x2, x3, x4], dim=1)
-
         # Apply channel attention
         out = self.channel_attention(out)
-
         # Combine and reduce channels
         out = self.combine_conv(out)
 
         # Apply spatial attention
         attention = self.spatial_attention(out)
         out = out * attention
-
         # Add residual
-        out += identity
-
+        out = out + identity
         # Final activation
         out = self.final_activation(out)
-
         return out
 
 
-# Define the RightModel
-class RightModel(nn.Module):
-    def __init__(self):
-        super(RightModel, self).__init__()
-        # Separable Convolutions on layer3
-        # GRU Layer for layer3
-        self.bi_gru1 = nn.GRU(input_size=64, hidden_size=32, bidirectional=True, batch_first=True)
-        # Additional Conv1d Layer after GRU
-        self.conv1d_1 = nn.Conv1d(in_channels=64, out_channels=64, kernel_size=3, padding=1)
-        # Separable Convolutions on layer2
-        self.layer2_SepConv1 = nn.Conv1d(in_channels=32, out_channels=64, kernel_size=3, padding=1)
-        # Additional Conv1d Layer after Add operation on layer2
-        self.conv1d_2 = nn.Conv1d(in_channels=64, out_channels=64, kernel_size=3, stride=3)
-        # GRU Layer for layer2
-        self.bi_gru2 = nn.GRU(input_size=64, hidden_size=32, bidirectional=True, batch_first=True)
-        self.out_cnn = nn.Conv1d(in_channels=64, out_channels=64, kernel_size= 3, padding= 1)
+class SSFusionStateS2P(nn.Module):
+    def __init__(self, window_len, num_state):
+        super(SSFusionStateS2P, self).__init__()
 
-            
-    def forward(self, layer3, layer2):
-        # First Separable Conv Block on layer3
-
-        # x2 = F.relu(self.layer3_total_SepConv2(layer3))
-        sep_add = layer3 
-        # Remove the unnecessary transpose
-        # Prepare for GRU input (batch_size, sequence_length, features)
-        dil_add = sep_add.permute(0, 2, 1)
-        bi_gru1_out, _ = self.bi_gru1(dil_add)
-        # Reshape back and apply Conv1d
-        gru1_output = bi_gru1_out.permute(0, 2, 1)
-        gru1_output = F.relu(self.conv1d_1(gru1_output))
+        base = 32
+        self.conv1_p = nn.Conv1d(1, base, 3, stride=1, padding=1)
+        self.conv2_p = nn.Conv1d(base, base * 2, 3, stride=2, padding=1)
+        self.conv3_p = nn.Conv1d(base * 2, base * 4, 3, stride=3, padding=1)
+        self.tsla_1 = TSLANet_layer(base * 4)
+        self.tsla_2 = TSLANet_layer(base * 4)
         
-        # Second Separable Conv Block on layer2
-        x3 = F.relu(self.layer2_SepConv1(layer2))
-        # x4 = F.relu(self.layer2_SepConv2(layer2))
-        sep_add_1 = x3 
-        # Remove the unnecessary transpose
-        sep_add_1 = F.relu(self.conv1d_2(sep_add_1))
-        # Prepare for GRU input
-        dil_add_1 = sep_add_1.permute(0, 2, 1)
-        bi_gru2_out, _ = self.bi_gru2(dil_add_1)
-        gru2_output = bi_gru2_out.permute(0, 2, 1)
+        self.conv1_p_bran2 = nn.Conv1d(1, base, 3, stride=1, padding=1)
+        self.conv2_p_bran2 = nn.Conv1d(base, base * 2, 3, stride=2, padding=1)
+        self.conv3_p_bran2 = nn.Conv1d(base * 2, base * 4, 3, stride=3, padding=1)
+        self.ICB = My_ICB(base * 4, base * 4)
+        self.attn = SimplifiedLinearAttention(base * 4, [10, 10], 2)        
+
+        self.fc1_p = nn.Linear(base * 8 * 100, 1024)
+        self.fc2_p = nn.Linear(1024, num_state)
+
+        self.fc1_s = nn.Linear(base * 8 * 100, 1024)
+        self.fc2_s = nn.Linear(1024, num_state)
+
+        self.crf = CRF(num_tags=num_state, batch_first=True)
+        self.er = EntropyRegularization()
+
+    def calc_crf_loss(self, out, tgt):
+        return -self.crf(out, tgt, reduction='mean')
+
+    def calc_er_loss(self, out):
+        return self.er(out)
+
+    def decode(self, out):
+        return self.crf.decode(out)
+
+    def forward(self, x):
+        x = x.unsqueeze(1)
+        y = x
+        x = F.relu(self.conv1_p(x))
+        x = F.relu(self.conv2_p(x))  # Output: batch, 128, 300
+        x = F.relu(self.conv3_p(x))  # Output: batch, 128, 300
+        x = x.transpose(1, 2)
+        x = self.tsla_1(x)
+        x = self.tsla_2(x)
         
-        # Final Add operation and mean pooling
-        right_output = self.out_cnn((gru1_output + gru2_output))
-        # right_output = self.se(right_output)
-        return right_output
+        y = F.relu(self.conv1_p_bran2(y))
+        y = F.relu(self.conv2_p_bran2(y))  # Output: batch, 128, 300
+        y = F.relu(self.conv3_p_bran2(y))  # Output: batch, 128, 300
+        y = self.ICB(y)
+        y = torch.permute(y, (0, 2, 1))
+        y = self.attn(y)
+
+        x = x.flatten(-2, -1)
+        y = y.flatten(-2, -1)
+        x = torch.cat((x, y), axis=1)
+        x_s = x
+        x = F.relu(self.fc1_p(x))
+        x = self.fc2_p(x)
+
+        x_s = F.relu(self.fc1_s(x_s))
+        x_s = self.fc2_s(x_s)
+
+        return x, x_s
 
 
-class ParallelS2P(nn.Module):
+
+class SSFusionS2P(nn.Module):
     def __init__(self, window_len):
-        super(ParallelS2P, self).__init__()
-        self.conv1_p = nn.Conv1d(1, 16, 3, stride=1, padding = 1)
-        self.conv2_p = nn.Conv1d(16, 32, 3, stride=2, padding= 1)
-        self.conv3_p = nn.Conv1d(32, 64, 3, stride=3, padding= 1)
-        self.ICB = ICB(64, 64)
-        self.attn = SimplifiedLinearAttention(64, [10, 10], 2)
-        self.right = RightModel()
-        self.fc1_p = nn.Linear(64  * 100 * 2, 1024)
-        # self.fc2_p = nn.Linear(32, 1)
-        # self.layernorm = nn.LayerNorm(256)
+        super(SSFusionS2P, self).__init__()
+
+        base = 32
+        self.conv1_p = nn.Conv1d(1, base, 3, stride=1, padding = 1)
+        self.conv2_p = nn.Conv1d(base, base* 2, 3, stride=2, padding= 1)
+        self.conv3_p = nn.Conv1d(base*2, base * 4, 3, stride=3, padding= 1)
+        self.tsla_1 = TSLANet_layer(base * 4)
+        self.tsla_2 = TSLANet_layer(base * 4)
+        
+        self.conv1_p_bran2 = nn.Conv1d(1, base, 3, stride=1, padding = 1)
+        self.conv2_p_bran2 = nn.Conv1d(base, base * 2, 3, stride=2, padding= 1)
+        self.conv3_p_bran2 = nn.Conv1d(base * 2, base * 4, 3, stride=3, padding= 1)
+        self.ICB = My_ICB(base * 4, base * 4)
+        self.attn = SimplifiedLinearAttention(base * 4, [10, 10], 2)        
+
+        self.fc1_p = nn.Linear(base * 8  * 100 , 1024)
         self.fc2_p = nn.Linear(1024, 1)
 
     def forward(self, x):
         x = x.unsqueeze(1)
+        y = x
         x = F.relu(self.conv1_p(x))
         x = F.relu(self.conv2_p(x)) # output batch, 128, 300
-        layer2 = x.clone()
-        x = F.relu(self.conv3_p(x)) # output batch, 256, 100
-        layer3 = x.clone()
-        x = self.ICB(x)
-        x = torch.permute(x, (0, 2 ,1))
-        x = self.attn(x)
-        right = self.right(layer3, layer2)
-        # x = F.relu(x)
+        x = F.relu(self.conv3_p(x)) # output batch, 128, 300
+        x = x.transpose(1, 2)
+        x = self.tsla_1(x)
+        x = self.tsla_2(x)
+        
+        y = F.relu(self.conv1_p_bran2(y))
+        y = F.relu(self.conv2_p_bran2(y)) # output batch, 128, 300
+        y = F.relu(self.conv3_p_bran2(y)) # output batch, 128, 300
+        y = self.ICB(y)
+        y = torch.permute(y, (0, 2 ,1))
+        y = self.attn(y)
+
         x = x.flatten(-2, -1)
-        right  = right.flatten(-2, -1)
-        x = torch.cat((x, right), axis = 1)
+        y = y.flatten(-2, -1)
+        x = torch.cat((x, y), axis = 1)
         x = F.relu(self.fc1_p(x))
         x = self.fc2_p(x)
-        return x
-
-
-class LinearAttnS2P(nn.Module):
-    def __init__(self, window_len):
-        super(LinearAttnS2P, self).__init__()
-        self.conv1_p = nn.Conv1d(1, 30, 3, stride=1, padding = 1)
-        self.conv2_p = nn.Conv1d(30, 60, 3, stride=2, padding= 1)
-        self.conv3_p = nn.Conv1d(60, 120, 3, stride=3, padding= 1)
-        self.attn = SimplifiedLinearAttention(120, [10, 10], 2)
-        # self.sum_attn = BahdanauAttention(120)
-        self.fc1_p = nn.Linear(120      , 1)
-        # self.fc2_p = nn.Linear(1024, 1)
-
-    def forward(self, x):
-        x = x.unsqueeze(1)
-        x = F.relu(self.conv1_p(x))
-        x = F.relu(self.conv2_p(x)) # output batch, 128, 300
-        x = F.relu(self.conv3_p(x)) # output batch, 256, 100
-        x = torch.permute(x, (0, 2 ,1))
-        x = self.attn(x)
-        # x = torch.permute(x, (0, 1 ,2)) 
-        # x,_ = self.sum_attn(x)
-        x = F.relu(x)
-        # x = x.flatten(-2, -1)
-        x = self.fc1_p(x)
         return x
 
 
