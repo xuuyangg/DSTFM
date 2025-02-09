@@ -6,12 +6,11 @@ import argparse
 import numpy as np
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
 import data_provider
-import model
-
+import s2pmodel as model
+from torch.utils.tensorboard import SummaryWriter
 # our schme multiple states without CRF layer
 params_appliance = {
     'kettle': {
@@ -151,7 +150,7 @@ torch.backends.cudnn.benchmark = False
 def load_dataset():   
 
     import pandas as pd
-    path = f'./REDD/{args.appliance_name}'    
+    path = f'./UK_DALE'    
     
     train = pd.read_csv(os.path.join(path, f'{args.appliance_name}_training_.csv'), header=None).to_numpy()
     val = pd.read_csv(os.path.join(path, f'{args.appliance_name}_validation_.csv'), header=None).to_numpy()
@@ -196,7 +195,7 @@ val_provider = data_provider.S2P_Slider(batch_size=5000,
 test_provider = data_provider.S2P_Slider(batch_size=5000,
                                                shuffle=False, offset=offset, length=window_len)
 
-m = model.ParallelS2P(599).to(device)
+m = model.FreqBaseModel().to(device)
 _params = filter(lambda p: p.requires_grad, m.parameters())
 optimizer = torch.optim.Adam(_params, lr=1e-4, weight_decay=1e-5)
 lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
@@ -208,6 +207,7 @@ best_state_dict_path = 'state_dict/{}'.format(args.appliance_name)
 
 best_val_loss = float('inf')
 best_val_epoch = -1
+writer = SummaryWriter(f'runs/{args.appliance_name}training_logs')
 
 for epoch in range(args.n_epoch):
     train_loss, n_batch_train = 0, 0
@@ -226,7 +226,6 @@ for epoch in range(args.n_epoch):
         train_loss += loss.item()
         n_batch_train += 1
     train_loss = train_loss / n_batch_train
-
     val_loss, n_batch_val = 0, 0
     with torch.no_grad():
         for batch in val_provider.feed(**val_kwag):
@@ -237,26 +236,24 @@ for epoch in range(args.n_epoch):
             p_val = m(x_val)
             val_loss += F.mse_loss(p_val, y_val).item()
             n_batch_val += 1
-
     val_loss = val_loss / n_batch_val
-
     print('>>> Epoch {}: train mse loss {:.6f}, val mse loss {:.6f}'.format(epoch, train_loss, val_loss), flush=True)
-
+    # 将训练和验证损失写入 TensorBoard
+    writer.add_scalar('Loss/train', train_loss, epoch)
+    writer.add_scalar('Loss/val', val_loss, epoch)
     if val_loss < best_val_loss:
         best_val_loss = val_loss
         best_val_epoch = epoch
-
         if not os.path.exists('state_dict/'):
             os.mkdir('state_dict/')
         torch.save(m.state_dict(), best_state_dict_path + '.pkl')
-
     elif best_val_epoch + args.patience < epoch:
         print('>>> Early stopping')
         break
-
     print('>>> Best model is at epoch {}'.format(best_val_epoch))
     lr_scheduler.step(best_val_loss)
 
+writer.close()
 # test
 gt = test_set_y[offset : -offset]
 m.load_state_dict(torch.load(best_state_dict_path + '.pkl'))

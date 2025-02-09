@@ -10,7 +10,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import data_provider
-import model
+# 导入自己的模型
+import s2pmodel as model
 
 # our schme multiple states without CRF layer
 params_appliance = {
@@ -217,7 +218,6 @@ best_val_epoch = -1
 for epoch in range(args.n_epoch):
     train_loss, n_batch_train = 0, 0
     for idx, batch in enumerate(tra_provider.feed(**tra_kwag)):
-        # print(idx, flush=True)
         m.train()
         optimizer.zero_grad()
         x_train, y_train, s_train = batch
