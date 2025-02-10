@@ -7,7 +7,7 @@ import numpy as np
 
 import torch
 import torch.nn.functional as F
-
+from torch.cuda.amp import GradScaler, autocast
 import data_provider
 import s2pmodel as model
 from torch.utils.tensorboard import SummaryWriter
@@ -207,22 +207,27 @@ best_state_dict_path = 'state_dict/{}'.format(args.appliance_name)
 
 best_val_loss = float('inf')
 best_val_epoch = -1
-writer = SummaryWriter(f'runs/{args.appliance_name}training_logs')
+writer = SummaryWriter(f'runs/{args.appliance_name}_no_position_training_logs')
 
+scaler = GradScaler()  # 用于梯度缩放
+best_val_loss = float('inf')
+best_val_epoch = 0
 for epoch in range(args.n_epoch):
     train_loss, n_batch_train = 0, 0
     for idx, batch in enumerate(tra_provider.feed(**tra_kwag)):
-        # print(idx, flush=True)
         m.train()
         optimizer.zero_grad()
         x_train, y_train = batch
         x_train = torch.tensor(x_train, dtype=torch.float, device=device)
         y_train = torch.tensor(y_train, dtype=torch.float, device=device)
-        p_train = m(x_train)
-       
-        loss = F.mse_loss(p_train, y_train) 
-        loss.backward()
-        optimizer.step()
+        # 使用 autocast 上下文管理器开启混合精度训练
+        with autocast():
+            p_train = m(x_train)
+            loss = F.mse_loss(p_train, y_train)
+        # 使用 scaler 进行梯度缩放和反向传播
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
         train_loss += loss.item()
         n_batch_train += 1
     train_loss = train_loss / n_batch_train
@@ -233,8 +238,10 @@ for epoch in range(args.n_epoch):
             x_val, y_val = batch
             x_val = torch.tensor(x_val, dtype=torch.float, device=device)
             y_val = torch.tensor(y_val, dtype=torch.float, device=device)
-            p_val = m(x_val)
-            val_loss += F.mse_loss(p_val, y_val).item()
+            # 使用 autocast 上下文管理器开启混合精度推理
+            with autocast():
+                p_val = m(x_val)
+                val_loss += F.mse_loss(p_val, y_val).item()
             n_batch_val += 1
     val_loss = val_loss / n_batch_val
     print('>>> Epoch {}: train mse loss {:.6f}, val mse loss {:.6f}'.format(epoch, train_loss, val_loss), flush=True)

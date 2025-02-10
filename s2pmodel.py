@@ -36,7 +36,7 @@ class FreqBaseModel(nn.Module):
         # 使用合并后的 CNN 层
         x = self.cnn_layers(x)
         x = x.transpose(1, 2)
-        x = x + self.positional_encoding
+        # x = x + self.positional_encoding
         ### 在这里添加位置编码
         x = self.tsla_1(x)
         x = self.tsla_2(x)
