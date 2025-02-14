@@ -152,7 +152,7 @@ torch.backends.cudnn.benchmark = False
 def load_dataset():   
 
     import pandas as pd
-    path = f'./UK_DALE/'    
+    path = f'./REDD/{args.appliance_name}'    
     
     train = pd.read_csv(os.path.join(path, f'{args.appliance_name}_training_.csv'), header=None).to_numpy()
     val = pd.read_csv(os.path.join(path, f'{args.appliance_name}_validation_.csv'), header=None).to_numpy()
@@ -215,79 +215,81 @@ std = params_appliance[args.appliance_name]['std']
 best_state_dict_path = 'state_dict/{}'.format(args.appliance_name) 
 
 
-# best_val_loss = float('inf')
-# best_val_epoch = -1
-# for epoch in range(args.n_epoch):
-#     train_loss, n_batch_train = 0, 0
-#     for batch in tra_provider.feed(**tra_kwag):
-#         m.train()
-#         optimizer.zero_grad()
-#         x_train, y_train, s_train = batch
-#         # x_train.shape=[batch_size, window_size]
-#         # y_train.shape=[batch_size, out_len]
-#         # s_train.shape=[batch_size, out_len]
-#         x_train = torch.tensor(x_train, dtype=torch.float, device=device)
-#         y_train = torch.tensor(y_train, dtype=torch.float, device=device)
-#         s_train = torch.tensor(s_train, dtype=torch.long, device=device)
-#         op_train, os_train = m(x_train)
-#         # op_train.shape = [batch_size, out_len * state_num]
-#         # os_train.shape = [batch_size, out_len * state_num]
-#         op_train = torch.reshape(op_train, (op_train.shape[0], out_len, state_num))
-#         os_train = torch.reshape(os_train, (os_train.shape[0], out_len, state_num))
-#         # op_train.shape = [batch_size, out_len, state_num]
-#         # os_train.shape = [batch_size, out_len, state_num]
-#         oss_train = F.softmax(os_train, dim=-1)
-#         # oss_train.shape = [batch_size, out_len, state_num]
-#         o_train = torch.sum(oss_train * op_train, dim=-1, keepdim=False)
-#         # o_train.shape = [batch_size*out_len, state_num]
-#         os_train = os_train.flatten(0, 1)
-#         s_train = s_train.flatten(0, 1)
-#         #         print('s_train for loss', s_train.shape)
-#         # os_train.shape = [batch_size*out_len, state_num]
-#         # s_train.shape = [batch_size*out_len]
-#         loss = F.mse_loss(o_train, y_train) + F.cross_entropy(os_train, s_train)
-#         loss.backward()
-#         optimizer.step()
-#         train_loss += loss.item()
-#         n_batch_train += 1
-#     train_loss = train_loss / n_batch_train
 
-#     val_loss, n_batch_val = 0, 0
-#     with torch.no_grad():
-#         for batch in val_provider.feed(**val_kwag):
-#             m.eval()
-#             x_val, y_val, s_val = batch
-#             x_val = torch.tensor(x_val, dtype=torch.float, device=device)
-#             y_val = torch.tensor(y_val, dtype=torch.float, device=device)
-#             s_val = torch.tensor(s_val, dtype=torch.long, device=device)
-#             op_val, os_val = m(x_val)
-#             op_val = torch.reshape(op_val, (op_val.shape[0], out_len, state_num))
-#             os_val = torch.reshape(os_val, (os_val.shape[0], out_len, state_num))
-#             oss_val = F.softmax(os_val, dim=-1)
-#             o_val = torch.sum(oss_val * op_val, dim=-1, keepdim=False)
-#             os_val = os_val.flatten(0, 1)
-#             s_val = s_val.flatten(0, 1)
-#             val_loss += F.mse_loss(o_val, y_val).item() + F.cross_entropy(os_val, s_val).item()
-#             n_batch_val += 1
+best_val_loss = float('inf')
+best_val_epoch = -1
+for epoch in range(args.n_epoch):
+    train_loss, n_batch_train = 0, 0
+    for batch in tra_provider.feed(**tra_kwag):
+        m.train()
+        optimizer.zero_grad()
+        x_train, y_train, s_train = batch
+        # x_train.shape=[batch_size, window_size]
+        # y_train.shape=[batch_size, out_len]
+        # s_train.shape=[batch_size, out_len]
+        x_train = torch.tensor(x_train, dtype=torch.float, device=device)
+        y_train = torch.tensor(y_train, dtype=torch.float, device=device)
+        s_train = torch.tensor(s_train, dtype=torch.long, device=device)
+        op_train, os_train = m(x_train)
+        # op_train.shape = [batch_size, out_len * state_num]
+        # os_train.shape = [batch_size, out_len * state_num]
+        op_train = torch.reshape(op_train, (op_train.shape[0], out_len, state_num))
+        os_train = torch.reshape(os_train, (os_train.shape[0], out_len, state_num))
+        # op_train.shape = [batch_size, out_len, state_num]
+        # os_train.shape = [batch_size, out_len, state_num]
+        oss_train = F.softmax(os_train, dim=-1)
+        # oss_train.shape = [batch_size, out_len, state_num]
+        o_train = torch.sum(oss_train * op_train, dim=-1, keepdim=False)
+        # o_train.shape = [batch_size*out_len, state_num]
+        os_train = os_train.flatten(0, 1)
+        s_train = s_train.flatten(0, 1)
+        #         print('s_train for loss', s_train.shape)
+        # os_train.shape = [batch_size*out_len, state_num]
+        # s_train.shape = [batch_size*out_len]
+        loss = F.mse_loss(o_train, y_train) + F.cross_entropy(os_train, s_train)
+        loss.backward()
+        optimizer.step()
+        train_loss += loss.item()
+        n_batch_train += 1
+    train_loss = train_loss / n_batch_train
 
-#     val_loss = val_loss / n_batch_val
+    val_loss, n_batch_val = 0, 0
+    with torch.no_grad():
+        for batch in val_provider.feed(**val_kwag):
+            m.eval()
+            x_val, y_val, s_val = batch
+            x_val = torch.tensor(x_val, dtype=torch.float, device=device)
+            y_val = torch.tensor(y_val, dtype=torch.float, device=device)
+            s_val = torch.tensor(s_val, dtype=torch.long, device=device)
+            op_val, os_val = m(x_val)
+            op_val = torch.reshape(op_val, (op_val.shape[0], out_len, state_num))
+            os_val = torch.reshape(os_val, (os_val.shape[0], out_len, state_num))
+            oss_val = F.softmax(os_val, dim=-1)
+            o_val = torch.sum(oss_val * op_val, dim=-1, keepdim=False)
+            os_val = os_val.flatten(0, 1)
+            s_val = s_val.flatten(0, 1)
+            val_loss += F.mse_loss(o_val, y_val).item() + F.cross_entropy(os_val, s_val).item()
 
-#     print('>>> Epoch {}: train mse loss {:.6f}, val mse loss {:.6f}'.format(epoch, train_loss, val_loss), flush=True)
+            n_batch_val += 1
 
-#     if val_loss < best_val_loss:
-#         best_val_loss = val_loss
-#         best_val_epoch = epoch
+    val_loss = val_loss / n_batch_val
 
-#         if not os.path.exists('state_dict/'):
-#             os.mkdir('state_dict/')
-#         torch.save(m.state_dict(), best_state_dict_path +'.pkl')
+    print('>>> Epoch {}: train mse loss {:.6f}, val mse loss {:.6f}'.format(epoch, train_loss, val_loss), flush=True)
 
-#     elif best_val_epoch + args.patience < epoch:
-#         print('>>> Early stopping')
-#         break
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        best_val_epoch = epoch
 
-#     print('>>> Best model is at epoch {}'.format(best_val_epoch))
-#     lr_scheduler.step(best_val_loss)
+        if not os.path.exists('state_dict/'):
+            os.mkdir('state_dict/')
+        torch.save(m.state_dict(), best_state_dict_path +'.pkl')
+
+    elif best_val_epoch + args.patience < epoch:
+        print('>>> Early stopping')
+        break
+
+    print('>>> Best model is at epoch {}'.format(best_val_epoch))
+    lr_scheduler.step(best_val_loss)
 
 # test
 test_len = test_set_x.size - (offset - out_len // 2) * 2
@@ -353,8 +355,8 @@ sample_second = 6.0  # sample time is 6 seconds
 print('MAE:{0}'.format(metric.get_abs_error(gt.flatten(), pred.flatten())))
 print('SAE:{0}'.format(metric.get_sae(gt.flatten(), pred.flatten(), sample_second)))
 print('SAE_Delta:{}'.format(metric.get_sae_delta(gt.flatten(), pred.flatten(), 1200)))
-on_power_threshold = params_appliance[args.appliance_name]['uk_on_power_threshold']
-print('FP:{}'.format(metric.get_F1(gt.flatten(), pred.flatten(), on_power_threshold)))
+# on_power_threshold = params_appliance[args.appliance_name]['uk_on_power_threshold']
+# print('FP:{}'.format(metric.get_F1(gt.flatten(), pred.flatten(), on_power_threshold)))
 print(metric.get_sae_delta(gt.flatten(), pred.flatten(), 600))
 
 print(np.mean(gt_s.flatten() == pred_sh.flatten()))
