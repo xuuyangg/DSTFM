@@ -49,11 +49,8 @@ params_appliance = {
         'redd_on_power_threshold': 50,
         'uk_on_power_threshold': 20,
         'max_on_power': 3323,
-        # 'mean': 200,
-        # 'std': 400,
-
-        'mean': 50,
-        'std': 100,
+        'mean': 200,
+        'std': 400,
         'redd_state_num': 3,
         'redd_state': [50, 300, 500],
         'redd_state_average': [3.2, 143.3, 397.3],
