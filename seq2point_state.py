@@ -11,7 +11,7 @@ import torch.nn.functional as F
 
 import data_provider
 # 导入自己的模型
-import s2pmodel as model
+import seq2pointmodel as model
 
 # our schme multiple states without CRF layer
 params_appliance = {

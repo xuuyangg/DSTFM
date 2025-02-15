@@ -9,7 +9,7 @@ import torch
 import torch.nn.functional as F
 from torch.cuda.amp import GradScaler, autocast
 import data_provider
-import s2pmodel as model
+import seq2pointmodel as model
 from torch.utils.tensorboard import SummaryWriter
 # our schme multiple states without CRF layer
 params_appliance = {
