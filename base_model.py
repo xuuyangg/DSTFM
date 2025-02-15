@@ -72,6 +72,7 @@ class Adaptive_Spectral_Block(nn.Module):
         # 定义用于低频和高频的复数权重参数
         self.complex_weight_high = nn.Parameter(torch.randn(dim, 2, dtype=torch.float32) * 0.02)
         self.complex_weight = nn.Parameter(torch.randn(dim, 2, dtype=torch.float32) * 0.02)
+        # self.complex_weight = nn.Parameter(torch.randn(51, dim, 2, dtype=torch.float32) * 0.02) # 适合复杂状态的用电器
         trunc_normal_(self.complex_weight_high, std=.02)
         trunc_normal_(self.complex_weight, std=.02)
         self.threshold_param = nn.Parameter(torch.rand(1))
@@ -151,11 +152,11 @@ class SimplifiedLinearAttention(nn.Module):
     简化线性注意力模块
     支持窗口划分，并结合位置编码与深度卷积以增强局部特征。
     """
-    def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None,
+    def __init__(self, dim, len, num_heads, qkv_bias=True, qk_scale=None,
                  attn_drop=0., proj_drop=0., focusing_factor=3, kernel_size=5):
         super().__init__()
         self.dim = dim
-        self.window_size = window_size  # 例如 [height, width]
+        self.len = len# 例如 [height, width]
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.focusing_factor = focusing_factor
@@ -165,11 +166,10 @@ class SimplifiedLinearAttention(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
         self.softmax = nn.Softmax(dim=-1)
         # 深度卷积模块
-        self.dwc = nn.Conv2d(in_channels=head_dim, out_channels=head_dim,
+        self.dwc = nn.Conv1d(in_channels=head_dim, out_channels=head_dim,
                              kernel_size=kernel_size, groups=head_dim, padding=kernel_size // 2)
         # 位置编码参数
-        self.positional_encoding = nn.Parameter(torch.zeros(1, window_size[0] * window_size[1], dim))
-        print(f'Linear Attention window{window_size} f{focusing_factor} kernel{kernel_size}')
+        self.positional_encoding = nn.Parameter(torch.zeros(1, self.len, dim))
 
     def forward(self, x, mask=None):
         """
@@ -203,8 +203,8 @@ class SimplifiedLinearAttention(nn.Module):
                 x = torch.einsum("b i j, b j d, b i -> b i d", qk, v, z)
         # 深度卷积特征增强
         num = int(v.shape[1] ** 0.5)
-        feature_map = rearrange(v, "b (w h) c -> b c w h", w=num, h=num)
-        feature_map = rearrange(self.dwc(feature_map), "b c w h -> b (w h) c")
+        feature_map = rearrange(v, "b l c -> b c l")
+        feature_map = rearrange(self.dwc(feature_map), "b c l -> b l c")
         x = x + feature_map
         # 恢复原始形状
         x = rearrange(x, "(b h) n c -> b n (h c)", h=self.num_heads)
@@ -264,7 +264,7 @@ class SEBlock(nn.Module):
         return x * y.expand_as(x)
 
 
-class My_ICB(nn.Module):
+class MSCR(nn.Module):
     """
     进阶 Inception Convolution Block
     采用多分支结构，包括：
