@@ -49,11 +49,8 @@ params_appliance = {
         'redd_on_power_threshold': 50,
         'uk_on_power_threshold': 20,
         'max_on_power': 3323,
-        # 'mean': 200,
-        # 'std': 400,
-
-        'mean': 50,
-        'std': 100,
+        'mean': 200,
+        'std': 400,
         'redd_state_num': 3,
         'redd_state': [50, 300, 500],
         'redd_state_average': [3.2, 143.3, 397.3],
@@ -154,7 +151,7 @@ def get_arguments():
 
 args = get_arguments()
 # save_path='/result/redd_fa_132_'+str(args.seed)+'_'
-save_path = './result/'
+save_path = './'
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 random.seed(args.seed)
@@ -221,13 +218,13 @@ test_provider = data_provider.S2P_State_Slider(batch_size=5000,
 m = model.TFFusionStateModel(state_num).to(device)
 
 
-def count_parameters(model):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+# def count_parameters(model):
+#     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-# 假设你的模型是 m
-num_params = count_parameters(m)
-print(f"Total number of parameters: {num_params}")
-exit()
+# # 假设你的模型是 m
+# num_params = count_parameters(m)
+# print(f"Total number of parameters: {num_params}")
+# exit()
 
 _params = filter(lambda p: p.requires_grad, m.parameters())
 optimizer = torch.optim.Adam(_params, lr=1e-4, weight_decay=1e-5)
@@ -361,9 +358,8 @@ import metric
 sample_second = 6.0  # sample time is 6 seconds
 print('MAE:{0}'.format(metric.get_abs_error(gt.flatten(), pred.flatten())))
 print('SAE:{0}'.format(metric.get_sae(gt.flatten(), pred.flatten(), sample_second)))
-print('SAE_Delta:{}'.format(metric.get_sae_delta(gt.flatten(), pred.flatten(), 1200)))
-print(metric.get_sae_delta(gt.flatten(), pred.flatten(), 600))
-print('F1: {}'.format(metric.get_F1(gt.reshape(1, -1), pred.reshape(1, -1), args.appliance_name)))
+print('SAE_Delta_1200:{}'.format(metric.get_sae_delta(gt.flatten(), pred.flatten(), 1200)))
+print('SAE_Delat_600', metric.get_sae_delta(gt.flatten(), pred.flatten(), 600))
 
 savegt = gt.flatten()
 savepred = pred.flatten()
